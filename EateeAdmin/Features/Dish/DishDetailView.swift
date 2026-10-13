@@ -14,6 +14,8 @@ struct DishDetailView: View {
     @State private var audit: DishAuditDetails?
     @State private var showsRejectConfirmation = false
     @State private var showsApproveConfirmation = false
+    @State private var remark = ""
+    @State private var isRejecting = false
     @State private var showsEditor = false
     @State private var showsDeleteConfirmation = false
     @State private var selectedImage: PhotosPickerItem?
@@ -52,6 +54,9 @@ struct DishDetailView: View {
                     IngredientsCard(ingredients: dish.ingredients ?? [])
                     RecipeStepsCard(steps: (dish.recipe_steps ?? []).sorted { ($0.order ?? 0) < ($1.order ?? 0) }.map { $0.description ?? "" })
                 }
+                if agent == .imageGeneration, status == .pending || status == .imagePending {
+                    RegenerationRemarkCard(remark: $remark, isLoading: isRejecting) { reject(comment: remark.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                }
                 if status == .pending || status == .imagePending {
                     HStack(spacing: 12) {
                         Button("Отклонить") { showsRejectConfirmation = true }.font(Typography.Font.semibold(16)).foregroundStyle(EAColor.danger).frame(maxWidth: .infinity).frame(height: 52).background(.white).clipShape(RoundedRectangle(cornerRadius: 16))
@@ -77,7 +82,7 @@ struct DishDetailView: View {
             }
         }
         .alert("Отклонить предложенные изменения?", isPresented: $showsRejectConfirmation) {
-            Button("Отклонить", role: .destructive) { update(.rejected) }
+            Button("Отклонить", role: .destructive) { reject(comment: nil) }
             Button("Нет", role: .cancel) {}
         }
         .alert("Принять предложенные изменения?", isPresented: $showsApproveConfirmation) {
@@ -110,6 +115,26 @@ struct DishDetailView: View {
                 try await repository.update(item, to: newStatus)
                 status = newStatus
                 if newStatus == .published { onApproval?() }
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func reject(comment: String?) {
+        guard !isRejecting else { return }
+        isRejecting = true
+        Task {
+            defer { isRejecting = false }
+            do {
+                try await repository.reject(item, comment: comment)
+                status = .rejected
+                if comment?.isEmpty == false {
+                    successMessage = "Картинка отправлена на перегенерацию"
+                    showsSuccessToast = true
+                    try? await Task.sleep(for: .seconds(1))
+                }
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
@@ -167,6 +192,44 @@ struct DishDetailView: View {
     }
 }
 
+/// Замечание к изображению: «Отклонить и перегенерировать» активно только при непустом тексте.
+/// Простое «Отклонить» остаётся в общей панели действий и уходит без тела.
+private struct RegenerationRemarkCard: View {
+    static let maxLength = 500
+    @Binding var remark: String
+    let isLoading: Bool
+    let regenerate: () -> Void
+
+    private var isEmpty: Bool { remark.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Что исправить на изображении?").font(Typography.Font.bold(17))
+            TextEditor(text: $remark)
+                .scrollContentBackground(.hidden)
+                .font(Typography.Font.regular(15))
+                .padding(10)
+                .frame(minHeight: 96)
+                .background(EAColor.background)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(alignment: .topLeading) {
+                    if remark.isEmpty { Text("Например: убрать вилку, добавить зелени сверху").font(Typography.Font.regular(15)).foregroundStyle(EAColor.muted).padding(.horizontal, 15).padding(.vertical, 18).allowsHitTesting(false) }
+                }
+                .onChange(of: remark) { _, value in if value.count > Self.maxLength { remark = String(value.prefix(Self.maxLength)) } }
+            HStack {
+                Text("\(remark.count)/\(Self.maxLength)").font(Typography.Font.regular(12)).foregroundStyle(EAColor.muted)
+                Spacer()
+            }
+            PrimaryButton(action: regenerate, title: "Отклонить и перегенерировать", isEnabled: !isEmpty && !isLoading)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 24).fill(.white))
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 3)
+        .padding(.horizontal)
+    }
+}
+
 private struct AuditSummaryCard: View {
     let summary: String
 
@@ -221,7 +284,7 @@ private struct MealInfoView: View {
             if auditCompleted { Label("Аудит пройден", systemImage: "checkmark.seal.fill").font(Typography.Font.semibold(14)).foregroundStyle(Color(hex: "#638000")).padding(.horizontal, 10).padding(.vertical, 7).background(Color(hex: "#F3F7DF")).clipShape(Capsule()) }
             Text(description).font(Typography.Font.regular(16)).foregroundStyle(EAColor.muted)
             if !labels.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
+                FlowLayout(spacing: 8) {
                     ForEach(labels, id: \.self) { badge($0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -43,6 +43,8 @@ protocol AgentsRepository: AnyObject {
     func reviewTotals(for agents: [AgentKind]) async -> [AgentKind: Int]
     func publishedDishesTotal() async -> Int?
     func update(_ dish: AgentDish, to status: ReviewStatus) async throws
+    /// Отклоняет элемент очереди. Непустой `comment` для изображения блюда запускает перегенерацию с учётом замечания.
+    func reject(_ dish: AgentDish, comment: String?) async throws
     func start(agent: AgentKind, count: Int?) async throws
     func isRunning(agent: AgentKind) async -> Bool
     func runs(agent: AgentKind?, page: Int, limit: Int) async throws -> Page<AgentRun>
@@ -111,6 +113,12 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
     func update(_ item: AgentDish, to status: ReviewStatus) async throws {
         let action = status == .published ? "approve" : "reject"
         try await request("api/admin/review-queue-item/\(item.id)/\(action)", method: "PUT")
+        dataVersion += 1
+    }
+    func reject(_ item: AgentDish, comment: String?) async throws {
+        let trimmed = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let body = trimmed.isEmpty ? nil : try JSONEncoder().encode(RejectReviewItemRequest(comment: trimmed))
+        try await request("api/admin/review-queue-item/\(item.id)/reject", method: "PUT", body: body)
         dataVersion += 1
     }
     func start(agent: AgentKind, count: Int?) async throws {
@@ -276,7 +284,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         }
         return Page(items: dishes, hasMore: hasMore)
     }
-    private func request(_ path: String, method: String) async throws -> Data { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = method; if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return data }
+    private func request(_ path: String, method: String, body: Data? = nil) async throws -> Data { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = method; if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }; if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return data }
     private func sendJSON<T: Decodable, Body: Encodable>(_ path: String, method: String, body: Body) async throws -> T {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
@@ -309,6 +317,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
 
 private extension ReviewStatus { var apiValue: String { switch self { case .pending, .imagePending: "pending"; case .published: "approved"; case .rejected: "rejected" } } }
 private struct AgentRunRequest: Encodable { let count: Int }
+private struct RejectReviewItemRequest: Encodable { let comment: String }
 private struct DishPageDTO: Decodable { let items: [DishAdminDTO]; let page: Int; let size: Int; let total: Int }
 private struct DishDetailsDTO: Decodable {
     let id: String; let title: String?; let description: String?; let images: [FileURLResponse]?
