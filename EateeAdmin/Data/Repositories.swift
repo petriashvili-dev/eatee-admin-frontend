@@ -69,8 +69,8 @@ struct Page<Item> { let items: [Item]; let hasMore: Bool }
 
 struct AdminAPIConfiguration
 {
-    static let baseURL = URL(string: "http://localhost:5100/")!
-    //static let baseURL = URL(string: "https://eatee.ru/")!
+    static let baseURL = URL(string: "https://eatee.ru/")!
+    //static let baseURL = URL(string: "http://localhost:5100/")!
 }
 
 struct HTTPAdminAuthenticationService: AuthenticationService {
