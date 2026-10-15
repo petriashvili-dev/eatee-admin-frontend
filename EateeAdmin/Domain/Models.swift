@@ -270,3 +270,13 @@ struct ServiceModeSettings: Codable, Equatable {
     var email: ServiceMode
     var embedding: ServiceMode
 }
+
+struct UserRoleAssignment: Codable, Identifiable, Hashable {
+    let id: String
+    let userID: String
+    let roleID: Int
+    let roleName: String?
+    let roleTitle: String?
+    enum CodingKeys: String, CodingKey { case id, userID = "user_id", roleID = "role_id", roleName = "role_name", roleTitle = "role_title" }
+}
+struct UserRolePage: Codable { let items: [UserRoleAssignment]; let total: Int }

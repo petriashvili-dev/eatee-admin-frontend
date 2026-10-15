@@ -13,6 +13,7 @@ struct AgentsHomeView: View {
                 NavigationLink { DishListView() } label: { DishesHeroCard(publishedCount: repository.homePublishedDishesCount) }.buttonStyle(.plain)
                 NavigationLink { DictionariesView() } label: { DictionariesHeroCard() }.buttonStyle(.plain)
                 NavigationLink { UsersView() } label: { UsersHeroCard() }.buttonStyle(.plain)
+                NavigationLink { AccessManagementView() } label: { AccessHeroCard() }.buttonStyle(.plain)
                 NavigationLink { AnalyticsDashboardView() } label: { AnalyticsHeroCard() }.buttonStyle(.plain)
                 NavigationLink { ApplicationSettingsView() } label: { SettingsHeroCard(settingsCount: repository.homeSettingsCount) }.buttonStyle(.plain)
             }.padding(20) }
@@ -26,6 +27,32 @@ struct AgentsHomeView: View {
 }
 
 private struct UsersHeroCard: View { var body: some View { VStack(alignment: .leading, spacing: 0) { HStack(alignment: .top) { VStack(alignment: .leading, spacing: 8) { Text("ПОЛЬЗОВАТЕЛИ").font(Typography.Font.bold(11)).tracking(1.3).foregroundStyle(Color(hex: "#39749D")); Text("Профили и\nрационы").font(Typography.Font.semibold(26)).foregroundStyle(EAColor.ink) }; Spacer(); ZStack { Circle().fill(Color(hex: "#D7E8F9")).frame(width: 104, height: 104); Image(systemName: "person.2.fill").font(.system(size: 43, weight: .medium)).foregroundStyle(Color(hex: "#39749D")) } }; HStack { ZStack { Circle().fill(EAColor.ink).frame(width: 56, height: 56); Image(systemName: "arrow.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white) }; Spacer(); Label("Поиск и история", systemImage: "magnifyingglass").font(Typography.Font.semibold(13)).foregroundStyle(Color(hex: "#39749D")).padding(.horizontal, 13).padding(.vertical, 10).background(Color(hex: "#D7E8F9")).clipShape(Capsule()) }.padding(.top, 22) }.padding(22).background(.white).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous)).shadow(color: .black.opacity(0.10), radius: 22, y: 8) } }
+
+private struct AccessHeroCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("ДОСТУПЫ").font(Typography.Font.bold(11)).tracking(1.3).foregroundStyle(Color(hex: "#2F7D6B"))
+                    Text("Роли и\nправа").font(Typography.Font.semibold(26)).foregroundStyle(EAColor.ink)
+                }
+                Spacer()
+                ZStack {
+                    Circle().fill(Color(hex: "#D5EEE6")).frame(width: 104, height: 104)
+                    Image(systemName: "lock.shield.fill").font(.system(size: 43, weight: .medium)).foregroundStyle(Color(hex: "#2F7D6B"))
+                }
+            }
+            HStack {
+                ZStack {
+                    Circle().fill(EAColor.ink).frame(width: 56, height: 56)
+                    Image(systemName: "arrow.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                }
+                Spacer()
+                Label("Администраторы", systemImage: "person.badge.key").font(Typography.Font.semibold(13)).foregroundStyle(Color(hex: "#2F7D6B")).padding(.horizontal, 13).padding(.vertical, 10).background(Color(hex: "#D5EEE6")).clipShape(Capsule())
+            }.padding(.top, 22)
+        }.padding(22).background(.white).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous)).shadow(color: .black.opacity(0.10), radius: 22, y: 8)
+    }
+}
 
 private struct AnalyticsHeroCard: View {
     var body: some View { VStack(alignment: .leading, spacing: 0) { HStack(alignment: .top) { VStack(alignment: .leading, spacing: 8) { Text("АНАЛИТИКА").font(Typography.Font.bold(11)).tracking(1.3).foregroundStyle(Color(hex: "#B35F2D")); Text("Статистика и\nмониторинг").font(Typography.Font.semibold(26)).foregroundStyle(EAColor.ink) }; Spacer(); ZStack { Circle().fill(Color(hex: "#F7D8C4")).frame(width: 104, height: 104); Image(systemName: "chart.xyaxis.line").font(.system(size: 43, weight: .medium)).foregroundStyle(Color(hex: "#B35F2D")) } }; HStack { ZStack { Circle().fill(EAColor.ink).frame(width: 56, height: 56); Image(systemName: "arrow.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white) }; Spacer(); Label("Пользователи · LLM", systemImage: "chart.bar").font(Typography.Font.semibold(13)).foregroundStyle(Color(hex: "#B35F2D")).padding(.horizontal, 13).padding(.vertical, 10).background(Color(hex: "#F7D8C4")).clipShape(Capsule()) }.padding(.top, 22) }.padding(22).background(.white).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous)).shadow(color: .black.opacity(0.10), radius: 22, y: 8) }

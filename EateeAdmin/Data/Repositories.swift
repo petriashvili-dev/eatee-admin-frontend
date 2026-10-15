@@ -58,6 +58,10 @@ protocol AgentsRepository: AnyObject {
     func feedbackAnalytics(from: Date, to: Date) async throws -> FeedbackAnalytics
     func adminUsers(page: Int, limit: Int, query: String) async throws -> AdminUserPage
     func adminUser(id: String) async throws -> AdminUserDetails
+    func userRoles(userID: String?, roleID: Int?, page: Int, size: Int) async throws -> UserRolePage
+    func assignRole(userID: String, roleID: Int) async throws
+    func replaceRole(assignmentID: String, roleID: Int) async throws
+    func revokeRole(assignmentID: String) async throws
     func dictionaryTypes() async throws -> [AdminDictionaryType]
     func dictionaryValues(name: String) async throws -> [DictionaryItem]
     func catalogIngredients(query: String) async throws -> [CatalogIngredient]
@@ -175,6 +179,23 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         try await decode("api/analytics/feedback", query: analyticsQuery(from: from, to: to))
     }
     func adminUsers(page: Int, limit: Int, query: String) async throws -> AdminUserPage { try await decode("api/admin/users", query: ["page": "\(page)", "size": "\(limit)", "q": query]) }
+    func userRoles(userID: String?, roleID: Int?, page: Int, size: Int) async throws -> UserRolePage {
+        try await decode("api/admin/user-role", query: ["user_id": userID ?? "", "role_id": roleID.map(String.init) ?? "", "page": "\(page)", "size": "\(size)"])
+    }
+    func assignRole(userID: String, roleID: Int) async throws { _ = try await roleRequest("api/admin/user-role", method: "POST", body: ["user_id": .string(userID), "role_id": .int(roleID)]) }
+    func replaceRole(assignmentID: String, roleID: Int) async throws { _ = try await roleRequest("api/admin/user-role/\(assignmentID)", method: "PUT", body: ["role_id": .int(roleID)]) }
+    func revokeRole(assignmentID: String) async throws { _ = try await roleRequest("api/admin/user-role/\(assignmentID)", method: "DELETE", body: nil) }
+    private enum RoleBodyValue: Encodable { case string(String), int(Int); func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); switch self { case let .string(v): try c.encode(v); case let .int(v): try c.encode(v) } } }
+    private func roleRequest(_ path: String, method: String, body: [String: RoleBodyValue]?) async throws -> Data {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = method
+        if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body) }
+        if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await tokens.authorizedData(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: String(data: data, encoding: .utf8) ?? "") }
+        return data
+    }
     func adminUser(id: String) async throws -> AdminUserDetails {
         var request = URLRequest(url: baseURL.appending(path: "api/admin/users/\(id)"))
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
