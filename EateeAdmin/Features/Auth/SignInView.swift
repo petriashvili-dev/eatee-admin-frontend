@@ -14,7 +14,7 @@ struct SignInView: View {
     private var isValid: Bool { email.isEmail && !password.isEmpty }
     var body: some View { GeometryReader { proxy in
         ScrollView(showsIndicators: false) { VStack(spacing: 0) {
-            VStack(spacing: 0) { Image("logo").renderingMode(.template).resizable().scaledToFit().foregroundStyle(AppColor.textBase).frame(width: 183, height: 66).padding(.top, proxy.size.height < 780 ? 44 : 80); Text("Управляйте контентом, пользователями и качеством сервиса.").font(Typography.Font.medium(16)).foregroundStyle(AppColor.textBase.opacity(0.6)).multilineTextAlignment(.center).padding(.top, 16) }.frame(maxWidth: .infinity)
+            VStack(spacing: 0) { Image("logo").renderingMode(.template).resizable().scaledToFit().foregroundStyle(AppColor.textBase).frame(width: 183, height: 66).padding(.top, proxy.size.height < 780 ? 44 : 80); Text("[admin]").font(Typography.Font.medium(20)).tracking(1.2).foregroundStyle(AppColor.textBase).padding(.top, 8); Text("Управляйте контентом, пользователями и качеством сервиса.").font(Typography.Font.medium(16)).foregroundStyle(AppColor.textBase.opacity(0.6)).multilineTextAlignment(.center).padding(.top, 12) }.frame(maxWidth: .infinity)
             VStack(spacing: 16) { EmailInputField(text: $email, isFocused: $focused); PasswordInputField(text: $password, isFocused: $passwordFocused); RegistrationContinueButton(isEnabled: isValid, isLoading: loading, action: signIn) }.padding(.top, 48)
             if let errorText { Text(errorText).font(Typography.Font.regular(14)).foregroundStyle(EAColor.danger).padding(.top, 16) }
             Spacer(minLength: 24)

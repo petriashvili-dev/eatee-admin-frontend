@@ -112,7 +112,22 @@ extension Dish {
         Dish(id: id, title: "Черновик блюда", description: "Детали доступны после открытия карточки.", images: nil, difficulty: nil, calories: nil, proteins: nil, fats: nil, carbohydrates: nil, tags: nil, cooking_time_in_minutes: nil, recipe_steps: nil, ingredients: nil)
     }
 }
-struct UserProfile: Codable, Hashable { let id: String; let name: String?; let email: String?; let phone: String?; let gender: String? }
+struct UserProfile: Codable, Hashable {
+    let id: String; let name: String?; let email: String?; let phone: String?; let gender: String?
+    init(id: String, name: String? = nil, email: String? = nil, phone: String? = nil, gender: String? = nil) { self.id = id; self.name = name; self.email = email; self.phone = phone; self.gender = gender }
+    enum CodingKeys: String, CodingKey { case id, name, email, phone, gender }
+    /// id может прийти строкой или числом; остальные поля опциональны.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try? c.decode(String.self, forKey: .id) { id = value }
+        else if let value = try? c.decode(Int.self, forKey: .id) { id = String(value) }
+        else { id = "" }
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        email = try? c.decodeIfPresent(String.self, forKey: .email)
+        phone = try? c.decodeIfPresent(String.self, forKey: .phone)
+        gender = try? c.decodeIfPresent(String.self, forKey: .gender)
+    }
+}
 struct AdminUserListItem: Codable, Identifiable { let id: String; let name: String?; let email: String; let registeredAt: String; let subscription: String?; let plansCount: Int; enum CodingKeys: String, CodingKey { case id, name, email, registeredAt = "registered_at", subscription, plansCount = "plans_count" } }
 struct AdminUserPage: Codable { let items: [AdminUserListItem]; let page: Int; let size: Int; let total: Int }
 struct AdminUserPlan: Codable, Identifiable { let id: String; let createdAt: String; let daysCount: Int; let strategy: String; enum CodingKeys: String, CodingKey { case id, createdAt = "created_at", daysCount = "days_count", strategy } }
@@ -130,7 +145,22 @@ struct AdminUserDetails: Codable {
     }
 }
 /// Совпадает с AuthenticationResponse основного приложения.
-struct AuthenticationResponse: Codable { let access_token: String; let access_token_expires_at: String; let refresh_token: String; let refresh_token_expires_at: String; let user: UserProfile }
+struct AuthenticationResponse: Codable {
+    let access_token: String; let access_token_expires_at: String; let refresh_token: String; let refresh_token_expires_at: String; let user: UserProfile
+    private struct AnyKey: CodingKey { var stringValue: String; var intValue: Int? { nil }; init(_ value: String) { stringValue = value }; init?(stringValue: String) { self.stringValue = stringValue }; init?(intValue: Int) { return nil } }
+    /// Принимает snake_case и camelCase; `user` и сроки жизни токенов могут отсутствовать.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        func string(_ keys: [String]) -> String? { for key in keys { if let value = try? c.decode(String.self, forKey: AnyKey(key)) { return value } }; return nil }
+        guard let access = string(["access_token", "accessToken"]), let refresh = string(["refresh_token", "refreshToken"]) else {
+            throw DecodingError.keyNotFound(AnyKey("access_token"), .init(codingPath: decoder.codingPath, debugDescription: "В ответе нет access_token/refresh_token"))
+        }
+        access_token = access; refresh_token = refresh
+        access_token_expires_at = string(["access_token_expires_at", "accessTokenExpiresAt"]) ?? ""
+        refresh_token_expires_at = string(["refresh_token_expires_at", "refreshTokenExpiresAt"]) ?? ""
+        user = (try? c.decode(UserProfile.self, forKey: AnyKey("user"))) ?? UserProfile(id: "")
+    }
+}
 enum AgentKind: String, CaseIterable, Identifiable, Codable, Hashable {
     case audit = "dish_audit"
     case generation = "dish_generation"
@@ -232,6 +262,17 @@ struct ApplicationSettings: Equatable {
     var serviceMode: ServiceModeSettings
     /// Тумблер `is_public` каждой настройки, ключ — `ApplicationSetting.rawValue`.
     var isPublic: [String: Bool] = [:]
+    /// Настройки, которых нет в зашитом списке (созданные через приложение или бэк).
+    var custom: [CustomSetting] = []
+}
+
+struct CustomSetting: Identifiable, Equatable {
+    let id: Int
+    let key: String
+    let title: String
+    /// Значение в читаемом виде: строка без кавычек, число/bool/JSON как текст.
+    var valueText: String
+    var isPublic: Bool
 }
 
 enum ApplicationSetting: String {

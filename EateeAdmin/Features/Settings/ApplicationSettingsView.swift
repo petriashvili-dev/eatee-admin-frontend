@@ -7,6 +7,12 @@ struct ApplicationSettingsView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showsUpdatedToast = false
+    @State private var newKey = ""
+    @State private var newTitle = ""
+    @State private var newValue = ""
+    @State private var newIsPublic = false
+
+    private var trimmedNewKey: String { newKey.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         Group {
@@ -35,6 +41,18 @@ struct ApplicationSettingsView: View {
                             ServiceModeRow(title: "Embedding", mode: binding(for: \.serviceMode.embedding, in: settings))
                             PublicSettingRow(isOn: publicBinding(.serviceMode, in: settings))
                         } saveAction: { save(.serviceMode) }
+                        ForEach(settings.custom) { item in
+                            SettingsSection(title: item.title, subtitle: item.key, saveTitle: "Обновить") {
+                                NewSettingField(title: "Значение", text: customValueBinding(item.id), keyboard: .default)
+                                PublicSettingRow(isOn: customPublicBinding(item.id))
+                            } saveAction: { saveCustom(item.id) }
+                        }
+                        SettingsSection(title: "Новая настройка", subtitle: "Ключ в snake_case, название по умолчанию равно ключу. Значение: число, true/false, JSON-объект или массив; любой другой текст сохранится строкой", saveTitle: "Добавить") {
+                            NewSettingField(title: "Ключ (internal_name)", text: $newKey, keyboard: .asciiCapable)
+                            NewSettingField(title: "Название (title), необязательно", text: $newTitle, keyboard: .default)
+                            NewSettingField(title: "Значение", text: $newValue, keyboard: .default)
+                            PublicSettingRow(isOn: $newIsPublic)
+                        } saveAction: { createSetting(existingKeys: Set(settings.isPublic.keys)) }
                     }
                     .padding(20)
                 }
@@ -82,6 +100,56 @@ struct ApplicationSettingsView: View {
                 showUpdatedToast()
             }
             catch { errorMessage = "Изменения не сохранены. Попробуйте ещё раз." }
+            isSaving = false
+        }
+    }
+
+    private func customValueBinding(_ id: Int) -> Binding<String> {
+        Binding(get: { settings?.custom.first { $0.id == id }?.valueText ?? "" },
+                set: { value in if let i = settings?.custom.firstIndex(where: { $0.id == id }) { settings?.custom[i].valueText = value } })
+    }
+
+    private func customPublicBinding(_ id: Int) -> Binding<Bool> {
+        Binding(get: { settings?.custom.first { $0.id == id }?.isPublic ?? false },
+                set: { value in if let i = settings?.custom.firstIndex(where: { $0.id == id }) { settings?.custom[i].isPublic = value } })
+    }
+
+    private func saveCustom(_ id: Int) {
+        guard let item = settings?.custom.first(where: { $0.id == id }) else { return }
+        isSaving = true
+        Task {
+            do {
+                try await repository.updateCustomSetting(item)
+                showUpdatedToast()
+            }
+            catch { errorMessage = "Изменения не сохранены.\n\(error.localizedDescription)" }
+            isSaving = false
+        }
+    }
+
+    private func createSetting(existingKeys: Set<String>) {
+        let key = trimmedNewKey
+        guard key.range(of: "^[a-z0-9_]+$", options: .regularExpression) != nil else {
+            errorMessage = "Ключ: только строчные латинские буквы, цифры и «_»."
+            return
+        }
+        guard !existingKeys.contains(key) else {
+            errorMessage = "Настройка с таким ключом уже есть."
+            return
+        }
+        guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Введите значение."
+            return
+        }
+        isSaving = true
+        Task {
+            do {
+                try await repository.createApplicationSetting(key: key, title: newTitle.trimmingCharacters(in: .whitespacesAndNewlines), value: newValue, isPublic: newIsPublic)
+                settings = try? await repository.applicationSettings()
+                newKey = ""; newTitle = ""; newValue = ""; newIsPublic = false
+                showUpdatedToast()
+            }
+            catch { errorMessage = "Не удалось добавить настройку.\n\(error.localizedDescription)" }
             isSaving = false
         }
     }
@@ -210,5 +278,23 @@ private struct PublicSettingRow: View {
                 Text("Доступна клиентским приложениям").font(Typography.Font.regular(12)).foregroundStyle(EAColor.muted)
             }
         }.tint(EAColor.ink).padding(.horizontal, 16).padding(.bottom, 14)
+    }
+}
+
+private struct NewSettingField: View {
+    let title: String
+    @Binding var text: String
+    let keyboard: UIKeyboardType
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(Typography.Font.medium(14)).foregroundStyle(EAColor.ink)
+            TextField("", text: $text)
+                .keyboardType(keyboard).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .font(Typography.Font.semibold(16))
+                .padding(.horizontal, 12).frame(height: 44)
+                .background(EAColor.background)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6)
     }
 }

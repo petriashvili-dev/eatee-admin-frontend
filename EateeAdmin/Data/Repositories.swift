@@ -51,6 +51,8 @@ protocol AgentsRepository: AnyObject {
     func applicationSettings() async throws -> ApplicationSettings
     func applicationSettingsCount() async throws -> Int
     func updateApplicationSetting(_ setting: ApplicationSetting, settings: ApplicationSettings) async throws
+    func createApplicationSetting(key: String, title: String, value: String, isPublic: Bool) async throws
+    func updateCustomSetting(_ setting: CustomSetting) async throws
     func analyticsOverview(from: Date, to: Date) async throws -> AnalyticsOverview
     func usersAnalytics(from: Date, to: Date, granularity: AnalyticsGranularity) async throws -> UsersAnalytics
     func nutritionPlansAnalytics(from: Date, to: Date, granularity: AnalyticsGranularity) async throws -> NutritionPlansAnalytics
@@ -81,7 +83,10 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
     let baseURL = AdminAPIConfiguration.baseURL
     func signIn(login: String, password: String) async throws -> AuthenticationResponse { try await send(path: "api/admin/auth", body: ["email": login, "password": password]) }
     func refresh(accessToken: String, refreshToken: String) async throws -> AuthenticationResponse { try await send(path: "api/auth/refresh", body: ["access_token": accessToken, "refresh_token": refreshToken]) }
-    private func send(path: String, body: [String: String]) async throws -> AuthenticationResponse { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body); let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }; if http.statusCode == 401 { throw AdminAuthenticationError.unauthorized }; guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return try JSONDecoder().decode(AuthenticationResponse.self, from: data) }
+    private func send(path: String, body: [String: String]) async throws -> AuthenticationResponse { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body); let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }; if http.statusCode == 401 { throw AdminAuthenticationError.unauthorized }; guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
+        return try JSONDecoder().decode(AuthenticationResponse.self, from: data)
+    }
 }
 
 @MainActor final class APIAgentsRepository: ObservableObject, AgentsRepository {
@@ -145,7 +150,20 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
             let serviceMode = items.first(where: { $0.internalName == "service_mode" })?.value.jsonPayload.decode(ServiceModeSettings.self)
         else { throw AdminAuthenticationError.invalidResponse }
         let isPublic = Dictionary(items.map { ($0.internalName, $0.isPublic) }, uniquingKeysWith: { first, _ in first })
-        return ApplicationSettings(userLimitGenerationPlanPerDay: limit, image: image, serviceMode: serviceMode, isPublic: isPublic)
+        let known = Set([ApplicationSetting.userLimitGenerationPlanPerDay, .image, .serviceMode].map(\.rawValue))
+        let custom = items.filter { !known.contains($0.internalName) && !$0.isDeleted }.map { item -> CustomSetting in
+            let payload = item.value.jsonPayload
+            let text: String
+            switch payload {
+            case let .string(value): text = value
+            case let .number(value): text = value.rounded() == value ? String(Int(value)) : String(value)
+            case let .bool(value): text = value ? "true" : "false"
+            case .null: text = ""
+            default: text = payload.jsonText ?? ""
+            }
+            return CustomSetting(id: item.id, key: item.internalName, title: item.title, valueText: text, isPublic: item.isPublic)
+        }
+        return ApplicationSettings(userLimitGenerationPlanPerDay: limit, image: image, serviceMode: serviceMode, isPublic: isPublic, custom: custom)
     }
     func applicationSettingsCount() async throws -> Int {
         let response: DictionarySettingsPageDTO = try await decode("api/admin/dictionary/setting", query: [:])
@@ -162,6 +180,27 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
             try await updateDictionarySetting(id: 3, internalName: setting.rawValue, title: "Режим работы сервиса", value: try .jsonString(.from(settings.serviceMode)), isPublic: isPublic)
         }
         dataVersion += 1
+    }
+    /// Новая настройка: id назначает бэк, title — название (если пустое, берётся ключ). Значение — строка с JSON-текстом:
+    /// число/bool/объект/массив передаются как есть, всё остальное — JSON-строкой в кавычках.
+    func createApplicationSetting(key: String, title: String, value: String, isPublic: Bool) async throws {
+        try await updateDictionarySetting(id: nil, internalName: key, title: title.isEmpty ? key : title, value: .string(Self.settingJSONText(from: value)), isPublic: isPublic)
+        // Проверяем GET-ом, что настройка реально сохранилась.
+        let page: DictionarySettingsPageDTO = try await decode("api/admin/dictionary/setting", query: ["page": "1", "size": "500"])
+        guard page.items.contains(where: { $0.internalName == key && !$0.isDeleted }) else {
+            throw AdminAuthenticationError.server(status: 200, message: "API вернул успех, но настройки «\(key)» нет в списке (всего: \(page.total)).")
+        }
+        dataVersion += 1
+    }
+    func updateCustomSetting(_ setting: CustomSetting) async throws {
+        try await updateDictionarySetting(id: setting.id, internalName: setting.key, title: setting.title, value: .string(Self.settingJSONText(from: setting.valueText)), isPublic: setting.isPublic)
+        dataVersion += 1
+    }
+    static func settingJSONText(from raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text == "true" || text == "false" || Double(text) != nil { return text }
+        if (text.hasPrefix("{") || text.hasPrefix("[")), let parsed = JSONValue.parse(json: text), let normalized = parsed.jsonText { return normalized }
+        return JSONValue.string(raw).jsonText ?? "\"\""
     }
     func analyticsOverview(from: Date, to: Date) async throws -> AnalyticsOverview {
         try await decode("api/analytics/overview", query: analyticsQuery(from: from, to: to))
@@ -319,15 +358,17 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: String(data: data, encoding: .utf8) ?? "") }
         return try JSONDecoder().decode(T.self, from: data)
     }
-    private func updateDictionarySetting(id: Int, internalName: String, title: String, value: JSONValue, isPublic: Bool) async throws {
+    private func updateDictionarySetting(id: Int?, internalName: String, title: String, value: JSONValue, isPublic: Bool) async throws {
         let body = DictionarySettingUpdateDTO(id: id, internalName: internalName, title: title, value: value, isPublic: isPublic, isDeleted: false)
         var request = URLRequest(url: baseURL.appending(path: "api/admin/dictionary/setting/create-or-update"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONEncoder().encode(body)
-        let (_, response) = try await tokens.authorizedData(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
+        let (data, response) = try await tokens.authorizedData(for: request)
+        let bodyText = String(data: data, encoding: .utf8) ?? ""
+        guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: bodyText) }
     }
     private func decode<T: Decodable>(_ path: String, query: [String: String]) async throws -> T { var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!; components.queryItems = query.filter { !$0.value.isEmpty }.map { URLQueryItem(name: $0.key, value: $0.value) }; var request = URLRequest(url: components.url!); if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await tokens.authorizedData(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; return try decoder.decode(T.self, from: data) }
     private func analyticsQuery(from: Date, to: Date, granularity: AnalyticsGranularity? = nil) -> [String: String] {
@@ -512,7 +553,7 @@ private struct DictionarySettingsPageDTO: Decodable {
     let total: Int
 }
 private struct DictionarySettingUpdateDTO: Encodable {
-    let id: Int
+    let id: Int?
     let internalName: String
     let title: String
     let value: JSONValue
