@@ -230,6 +230,8 @@ struct ApplicationSettings: Equatable {
     var userLimitGenerationPlanPerDay: Int
     var image: ImageSettings
     var serviceMode: ServiceModeSettings
+    /// Тумблер `is_public` каждой настройки, ключ — `ApplicationSetting.rawValue`.
+    var isPublic: [String: Bool] = [:]
 }
 
 enum ApplicationSetting: String {

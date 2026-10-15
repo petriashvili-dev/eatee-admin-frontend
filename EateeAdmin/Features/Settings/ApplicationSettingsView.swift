@@ -17,6 +17,7 @@ struct ApplicationSettingsView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         SettingsSection(title: "Рацион", subtitle: "Генерация рациона блюд", saveTitle: "Обновить") {
                             NumericSettingRow(title: "Лимит запросов в сутки", range: 1...100, value: binding(for: \.userLimitGenerationPlanPerDay, in: settings))
+                            PublicSettingRow(isOn: publicBinding(.userLimitGenerationPlanPerDay, in: settings))
                         } saveAction: { save(.userLimitGenerationPlanPerDay) }
                         SettingsSection(title: "Изображения", subtitle: "Параметры загрузки и конвертации изображений блюд", saveTitle: "Обновить") {
                             NumericSettingRow(title: "Размер карточки", suffix: "px", range: 100...2_000, step: 10, value: binding(for: \.image.cardSize, in: settings))
@@ -25,12 +26,14 @@ struct ApplicationSettingsView: View {
                             NumericSettingRow(title: "Качество WebP", suffix: "%", range: 1...100, value: binding(for: \.image.webpQuality, in: settings))
                             NumericSettingRow(title: "Макс. размер файла", suffix: "МБ", range: 1...100, value: megabytesBinding(in: settings))
                             ExtensionsSettingRow(extensions: extensionsBinding(in: settings))
+                            PublicSettingRow(isOn: publicBinding(.image, in: settings))
                         } saveAction: { save(.image) }
                         SettingsSection(title: "Режим работы сервиса", subtitle: "Режимы работы интеграционных сервисов", saveTitle: "Обновить") {
                             ServiceModeRow(title: "LLM", mode: binding(for: \.serviceMode.llm, in: settings))
                             ServiceModeRow(title: "SMS", mode: binding(for: \.serviceMode.sms, in: settings))
                             ServiceModeRow(title: "Email", mode: binding(for: \.serviceMode.email, in: settings))
                             ServiceModeRow(title: "Embedding", mode: binding(for: \.serviceMode.embedding, in: settings))
+                            PublicSettingRow(isOn: publicBinding(.serviceMode, in: settings))
                         } saveAction: { save(.serviceMode) }
                     }
                     .padding(20)
@@ -49,6 +52,10 @@ struct ApplicationSettingsView: View {
 
     private func binding<Value>(for keyPath: WritableKeyPath<ApplicationSettings, Value>, in snapshot: ApplicationSettings) -> Binding<Value> {
         Binding(get: { settings?[keyPath: keyPath] ?? snapshot[keyPath: keyPath] }, set: { settings?[keyPath: keyPath] = $0 })
+    }
+
+    private func publicBinding(_ setting: ApplicationSetting, in snapshot: ApplicationSettings) -> Binding<Bool> {
+        Binding(get: { settings?.isPublic[setting.rawValue] ?? snapshot.isPublic[setting.rawValue] ?? false }, set: { settings?.isPublic[setting.rawValue] = $0 })
     }
 
     private func megabytesBinding(in snapshot: ApplicationSettings) -> Binding<Int> {
@@ -192,4 +199,16 @@ private struct ServiceModeRow: View {
     let title: String
     @Binding var mode: ServiceMode
     var body: some View { HStack { Text(title).font(Typography.Font.medium(14)).foregroundStyle(EAColor.ink); Spacer(); Picker(title, selection: $mode) { ForEach(ServiceMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented).frame(width: 150) }.padding(.horizontal, 16).padding(.bottom, 14) }
+}
+
+private struct PublicSettingRow: View {
+    @Binding var isOn: Bool
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Публичная настройка").font(Typography.Font.medium(14)).foregroundStyle(EAColor.ink)
+                Text("Доступна клиентским приложениям").font(Typography.Font.regular(12)).foregroundStyle(EAColor.muted)
+            }
+        }.tint(EAColor.ink).padding(.horizontal, 16).padding(.bottom, 14)
+    }
 }

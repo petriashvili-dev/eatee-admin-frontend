@@ -140,20 +140,22 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
             let image = items.first(where: { $0.internalName == "image" })?.value.jsonPayload.decode(ImageSettings.self),
             let serviceMode = items.first(where: { $0.internalName == "service_mode" })?.value.jsonPayload.decode(ServiceModeSettings.self)
         else { throw AdminAuthenticationError.invalidResponse }
-        return ApplicationSettings(userLimitGenerationPlanPerDay: limit, image: image, serviceMode: serviceMode)
+        let isPublic = Dictionary(items.map { ($0.internalName, $0.isPublic) }, uniquingKeysWith: { first, _ in first })
+        return ApplicationSettings(userLimitGenerationPlanPerDay: limit, image: image, serviceMode: serviceMode, isPublic: isPublic)
     }
     func applicationSettingsCount() async throws -> Int {
         let response: DictionarySettingsPageDTO = try await decode("api/admin/dictionary/setting", query: [:])
         return response.total
     }
     func updateApplicationSetting(_ setting: ApplicationSetting, settings: ApplicationSettings) async throws {
+        let isPublic = settings.isPublic[setting.rawValue] ?? false
         switch setting {
         case .userLimitGenerationPlanPerDay:
-            try await updateDictionarySetting(id: 1, internalName: setting.rawValue, title: "Пользовательский лимит на количество запросов на генерацию рациона в сутки", value: try .jsonString(.number(Double(settings.userLimitGenerationPlanPerDay))))
+            try await updateDictionarySetting(id: 1, internalName: setting.rawValue, title: "Пользовательский лимит на количество запросов на генерацию рациона в сутки", value: try .jsonString(.number(Double(settings.userLimitGenerationPlanPerDay))), isPublic: isPublic)
         case .image:
-            try await updateDictionarySetting(id: 2, internalName: setting.rawValue, title: "Файловые настройки", value: try .jsonString(.from(settings.image)))
+            try await updateDictionarySetting(id: 2, internalName: setting.rawValue, title: "Файловые настройки", value: try .jsonString(.from(settings.image)), isPublic: isPublic)
         case .serviceMode:
-            try await updateDictionarySetting(id: 3, internalName: setting.rawValue, title: "Режим работы сервиса", value: try .jsonString(.from(settings.serviceMode)))
+            try await updateDictionarySetting(id: 3, internalName: setting.rawValue, title: "Режим работы сервиса", value: try .jsonString(.from(settings.serviceMode)), isPublic: isPublic)
         }
         dataVersion += 1
     }
@@ -296,8 +298,8 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: String(data: data, encoding: .utf8) ?? "") }
         return try JSONDecoder().decode(T.self, from: data)
     }
-    private func updateDictionarySetting(id: Int, internalName: String, title: String, value: JSONValue) async throws {
-        let body = DictionarySettingUpdateDTO(id: id, internalName: internalName, title: title, value: value, isDeleted: false)
+    private func updateDictionarySetting(id: Int, internalName: String, title: String, value: JSONValue, isPublic: Bool) async throws {
+        let body = DictionarySettingUpdateDTO(id: id, internalName: internalName, title: title, value: value, isPublic: isPublic, isDeleted: false)
         var request = URLRequest(url: baseURL.appending(path: "api/admin/dictionary/setting/create-or-update"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -469,8 +471,18 @@ private struct DictionarySettingDTO: Decodable {
     let internalName: String
     let title: String
     let value: JSONValue
+    let isPublic: Bool
     let isDeleted: Bool
-    enum CodingKeys: String, CodingKey { case id; case internalName = "internal_name"; case title; case value; case isDeleted = "is_deleted" }
+    enum CodingKeys: String, CodingKey { case id; case internalName = "internal_name"; case title; case value; case isPublic = "is_public"; case isDeleted = "is_deleted" }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        internalName = try c.decode(String.self, forKey: .internalName)
+        title = try c.decode(String.self, forKey: .title)
+        value = try c.decode(JSONValue.self, forKey: .value)
+        isPublic = try c.decodeIfPresent(Bool.self, forKey: .isPublic) ?? false
+        isDeleted = try c.decode(Bool.self, forKey: .isDeleted)
+    }
 }
 private struct DictionarySettingsPageDTO: Decodable {
     let items: [DictionarySettingDTO]
@@ -483,8 +495,9 @@ private struct DictionarySettingUpdateDTO: Encodable {
     let internalName: String
     let title: String
     let value: JSONValue
+    let isPublic: Bool
     let isDeleted: Bool
-    enum CodingKeys: String, CodingKey { case id; case internalName = "internal_name"; case title; case value; case isDeleted = "is_deleted" }
+    enum CodingKeys: String, CodingKey { case id; case internalName = "internal_name"; case title; case value; case isPublic = "is_public"; case isDeleted = "is_deleted" }
 }
 private struct DictionaryTypesDTO: Decodable { let items: [AdminDictionaryType] }
 private struct PublicDictionaryPageDTO: Decodable { let items: [DictionaryItem] }
