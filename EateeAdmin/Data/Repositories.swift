@@ -95,7 +95,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         components.queryItems = agents.map { URLQueryItem(name: "agentKeys", value: $0.rawValue) }
         var request = URLRequest(url: components.url!)
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        guard let (data, response) = try? await URLSession.shared.data(for: request), let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let dto = try? JSONDecoder().decode(ReviewTotalsDTO.self, from: data) else { return [:] }
+        guard let (data, response) = try? await tokens.authorizedData(for: request), let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let dto = try? JSONDecoder().decode(ReviewTotalsDTO.self, from: data) else { return [:] }
         return [
             .generation: dto.dish_generation_on_review_total,
             .audit: dto.dish_audit_on_review_total,
@@ -127,7 +127,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let count { request.httpBody = try JSONEncoder().encode(AgentRunRequest(count: count)) }
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
         dataVersion += 1
     }
@@ -176,7 +176,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
     func adminUser(id: String) async throws -> AdminUserDetails {
         var request = URLRequest(url: baseURL.appending(path: "api/admin/users/\(id)"))
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? ""
@@ -224,7 +224,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONEncoder().encode(JSONValue.object(value))
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
         dataVersion += 1
     }
@@ -257,7 +257,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = body
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
         let dto = try JSONDecoder().decode(DishDetailsDTO.self, from: data)
         dataVersion += 1
@@ -268,7 +268,7 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         dataVersion += 1
     }
     func reviewDish(queueItemID: String) async throws -> ReviewDishDetails { let dto: ReviewDetailsDTO = try await decode("api/admin/review-queue-item/\(queueItemID)", query: [:]); return dto.reviewDetails(id: queueItemID) }
-    func runs(agent: AgentKind?, page: Int, limit: Int) async throws -> Page<AgentRun> { let agents = agent.map { [$0] } ?? AgentKind.allCases; var components = URLComponents(url: baseURL.appending(path: "api/admin/ai-agents/runs"), resolvingAgainstBaseURL: false)!; components.queryItems = agents.map { URLQueryItem(name: "agentKeys", value: $0.rawValue) } + [URLQueryItem(name: "page", value: "\(page + 1)"), URLQueryItem(name: "size", value: "\(limit)")]; var request = URLRequest(url: components.url!); if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; let dto = try decoder.decode(RunsDTO.self, from: data); let mapped = dto.items.map { $0.run }; runValues = mapped; return Page(items: mapped, hasMore: (page + 1) * limit < dto.total) }
+    func runs(agent: AgentKind?, page: Int, limit: Int) async throws -> Page<AgentRun> { let agents = agent.map { [$0] } ?? AgentKind.allCases; var components = URLComponents(url: baseURL.appending(path: "api/admin/ai-agents/runs"), resolvingAgainstBaseURL: false)!; components.queryItems = agents.map { URLQueryItem(name: "agentKeys", value: $0.rawValue) } + [URLQueryItem(name: "page", value: "\(page + 1)"), URLQueryItem(name: "size", value: "\(limit)")]; var request = URLRequest(url: components.url!); if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await tokens.authorizedData(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; let dto = try decoder.decode(RunsDTO.self, from: data); let mapped = dto.items.map { $0.run }; runValues = mapped; return Page(items: mapped, hasMore: (page + 1) * limit < dto.total) }
     private func queue(agent: AgentKind, status: ReviewStatus, page: Int, limit: Int) async throws -> Page<AgentDish> {
         let dto: QueueDTO = try await decode("api/admin/review-queue", query: ["agentKeys": agent.rawValue, "statuses": status.apiValue, "page": "\(page + 1)", "size": "\(limit)"])
         let items = dto.groups.flatMap(\.items)
@@ -284,14 +284,14 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         }
         return Page(items: dishes, hasMore: hasMore)
     }
-    private func request(_ path: String, method: String, body: Data? = nil) async throws -> Data { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = method; if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }; if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return data }
+    private func request(_ path: String, method: String, body: Data? = nil) async throws -> Data { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = method; if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }; if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await tokens.authorizedData(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return data }
     private func sendJSON<T: Decodable, Body: Encodable>(_ path: String, method: String, body: Body) async throws -> T {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: String(data: data, encoding: .utf8) ?? "") }
         return try JSONDecoder().decode(T.self, from: data)
@@ -303,10 +303,10 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONEncoder().encode(body)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }
     }
-    private func decode<T: Decodable>(_ path: String, query: [String: String]) async throws -> T { var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!; components.queryItems = query.filter { !$0.value.isEmpty }.map { URLQueryItem(name: $0.key, value: $0.value) }; var request = URLRequest(url: components.url!); if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; return try decoder.decode(T.self, from: data) }
+    private func decode<T: Decodable>(_ path: String, query: [String: String]) async throws -> T { var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!; components.queryItems = query.filter { !$0.value.isEmpty }.map { URLQueryItem(name: $0.key, value: $0.value) }; var request = URLRequest(url: components.url!); if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }; let (data, response) = try await tokens.authorizedData(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; return try decoder.decode(T.self, from: data) }
     private func analyticsQuery(from: Date, to: Date, granularity: AnalyticsGranularity? = nil) -> [String: String] {
         let formatter = ISO8601DateFormatter()
         var query = ["from": formatter.string(from: from), "to": formatter.string(from: to)]

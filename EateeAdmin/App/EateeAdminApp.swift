@@ -43,7 +43,7 @@ import SwiftUI
     let auth: AuthenticationService = HTTPAdminAuthenticationService()
     let userService: UserProfileService = HTTPUserProfileService(baseURL: AdminAPIConfiguration.baseURL)
     private let tokens: AdminTokenStore
-    init(tokens: AdminTokenStore) { self.tokens = tokens; user = tokens.user }
+    init(tokens: AdminTokenStore) { self.tokens = tokens; user = tokens.user; tokens.onSessionExpired = { [weak self] in self?.user = nil } }
     func signIn(login: String, password: String) async throws { let response = try await auth.signIn(login: login, password: password); tokens.save(response); user = (try? await userService.currentUser(accessToken: response.access_token)) ?? response.user }
     func restoreSession() async { defer { isRestoring = false }; if tokens.hasValidAccessToken, let access = tokens.accessToken { user = (try? await userService.currentUser(accessToken: access)) ?? tokens.user; return }; guard tokens.canRefresh, let access = tokens.accessToken, let refresh = tokens.refreshToken else { tokens.clear(); return }; do { let response = try await auth.refresh(accessToken: access, refreshToken: refresh); tokens.save(response); user = (try? await userService.currentUser(accessToken: response.access_token)) ?? response.user } catch { tokens.clear() } }
     func signOut() { tokens.clear(); user = nil }
