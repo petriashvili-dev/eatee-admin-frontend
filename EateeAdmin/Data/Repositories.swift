@@ -1,7 +1,7 @@
 import Foundation
 
 enum AdminAuthenticationError: LocalizedError { case unauthorized; case invalidResponse; case server(status: Int, message: String); var errorDescription: String? { switch self { case .unauthorized: "Нет доступа к админке."; case .invalidResponse: "Не удалось выполнить запрос."; case let .server(status, message): message.isEmpty ? "Ошибка сервера (HTTP \(status))." : "Ошибка сервера (HTTP \(status)): \(message)" } } }
-protocol AuthenticationService { func signIn(login: String) async throws -> AuthenticationResponse; func refresh(accessToken: String, refreshToken: String) async throws -> AuthenticationResponse }
+protocol AuthenticationService { func signIn(login: String, password: String) async throws -> AuthenticationResponse; func refresh(accessToken: String, refreshToken: String) async throws -> AuthenticationResponse }
 protocol UserProfileService { func currentUser(accessToken: String) async throws -> UserProfile }
 
 /// Контекстный пользователь всегда запрашивается отдельным `GET /api/user`.
@@ -26,7 +26,7 @@ enum HTTPAdminRoute {
 /// Никаких verification-кодов не использует: 200 декодируется в AuthenticationResponse, 401 — отказ в доступе.
 struct HTTPAuthenticationService: AuthenticationService {
     let baseURL: URL; let loginPath: String; let refreshPath: String
-    func signIn(login: String) async throws -> AuthenticationResponse { try await send(path: loginPath, body: ["login": login]) }
+    func signIn(login: String, password: String) async throws -> AuthenticationResponse { try await send(path: loginPath, body: ["login": login, "password": password]) }
     func refresh(accessToken: String, refreshToken: String) async throws -> AuthenticationResponse { try await send(path: refreshPath, body: ["access_token": accessToken, "refresh_token": refreshToken]) }
     private func send(path: String, body: [String: String]) async throws -> AuthenticationResponse { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body); let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }; if http.statusCode == 401 { throw AdminAuthenticationError.unauthorized }; guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; do { return try JSONDecoder().decode(AuthenticationResponse.self, from: data) } catch { throw AdminAuthenticationError.invalidResponse } }
 }
@@ -75,7 +75,7 @@ struct AdminAPIConfiguration
 
 struct HTTPAdminAuthenticationService: AuthenticationService {
     let baseURL = AdminAPIConfiguration.baseURL
-    func signIn(login: String) async throws -> AuthenticationResponse { try await send(path: "api/admin/auth", body: ["email": login]) }
+    func signIn(login: String, password: String) async throws -> AuthenticationResponse { try await send(path: "api/admin/auth", body: ["email": login, "password": password]) }
     func refresh(accessToken: String, refreshToken: String) async throws -> AuthenticationResponse { try await send(path: "api/auth/refresh", body: ["access_token": accessToken, "refresh_token": refreshToken]) }
     private func send(path: String, body: [String: String]) async throws -> AuthenticationResponse { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body); let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }; if http.statusCode == 401 { throw AdminAuthenticationError.unauthorized }; guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; return try JSONDecoder().decode(AuthenticationResponse.self, from: data) }
 }

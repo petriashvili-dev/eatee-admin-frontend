@@ -5,15 +5,17 @@ import SwiftUI
 struct SignInView: View {
     @EnvironmentObject private var session: SessionStore
     @State private var email = ""
+    @State private var password = ""
     @State private var loading = false
     @State private var errorText: String?
     @FocusState private var focused: Bool
+    @FocusState private var passwordFocused: Bool
     /// Использует ту же регулярную проверку, что и основной iOS-проект.
-    private var isValid: Bool { email.isEmail }
+    private var isValid: Bool { email.isEmail && !password.isEmpty }
     var body: some View { GeometryReader { proxy in
         ScrollView(showsIndicators: false) { VStack(spacing: 0) {
             VStack(spacing: 0) { Image("logo").renderingMode(.template).resizable().scaledToFit().foregroundStyle(AppColor.textBase).frame(width: 183, height: 66).padding(.top, proxy.size.height < 780 ? 44 : 80); Text("Управляйте контентом, пользователями и качеством сервиса.").font(Typography.Font.medium(16)).foregroundStyle(AppColor.textBase.opacity(0.6)).multilineTextAlignment(.center).padding(.top, 16) }.frame(maxWidth: .infinity)
-            VStack(spacing: 16) { EmailInputField(text: $email, isFocused: $focused); RegistrationContinueButton(isEnabled: isValid, isLoading: loading, action: signIn) }.padding(.top, 48)
+            VStack(spacing: 16) { EmailInputField(text: $email, isFocused: $focused); PasswordInputField(text: $password, isFocused: $passwordFocused); RegistrationContinueButton(isEnabled: isValid, isLoading: loading, action: signIn) }.padding(.top, 48)
             if let errorText { Text(errorText).font(Typography.Font.regular(14)).foregroundStyle(EAColor.danger).padding(.top, 16) }
             Spacer(minLength: 24)
         }.frame(minHeight: proxy.size.height, alignment: .top).padding(.horizontal, 16) }
@@ -24,7 +26,7 @@ struct SignInView: View {
 
         Task {
             do {
-                try await session.signIn(login: email)
+                try await session.signIn(login: email, password: password)
             } catch {
                 errorText = error.userMessage
             }
@@ -71,3 +73,24 @@ private extension String {
 
 private struct EmailInputField: View { @Binding var text: String; @FocusState.Binding var isFocused: Bool; var body: some View { HStack(spacing: 13) { Image(systemName: "envelope").font(.system(size: 22, weight: .medium)).foregroundStyle(AppColor.textBase.opacity(0.55)); TextField("", text: $text, prompt: Text("Введите e-mail").font(Typography.Font.semibold(16)).foregroundStyle(AppColor.textBase.opacity(0.5))).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled().font(Typography.Font.semibold(16)).focused($isFocused); if !text.isEmpty { Button { text = "" } label: { Image(systemName: "xmark").foregroundStyle(AppColor.textBase.opacity(0.6)) } } }.frame(height: 58).padding(.horizontal, 22).background(.white).clipShape(RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(isFocused ? AppColor.textBase.opacity(0.5) : AppColor.spbSky_3, lineWidth: 1.1)) } }
 private struct RegistrationContinueButton: View { let isEnabled: Bool; let isLoading: Bool; let action: () -> Void; var body: some View { Button(action: action) { ZStack { Text("Продолжить").font(Typography.Font.semibold(15)).foregroundStyle(isEnabled ? AppColor.titleButton : EAColor.muted).opacity(isLoading ? 0 : 1); if isLoading { ProgressView() } }.frame(maxWidth: .infinity).frame(height: 52).background(isEnabled ? AppColor.base : AppColor.spbSky_3).clipShape(RoundedRectangle(cornerRadius: 16)) }.buttonStyle(.plain).disabled(!isEnabled || isLoading) } }
+
+private struct PasswordInputField: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    @State private var isVisible = false
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: "lock").font(.system(size: 22, weight: .medium)).foregroundStyle(AppColor.textBase.opacity(0.55))
+            Group {
+                if isVisible { TextField("", text: $text, prompt: prompt) } else { SecureField("", text: $text, prompt: prompt) }
+            }
+            .textContentType(.password).textInputAutocapitalization(.never).autocorrectionDisabled()
+            .font(Typography.Font.semibold(16)).focused($isFocused)
+            Button { isVisible.toggle() } label: { Image(systemName: isVisible ? "eye.slash" : "eye").foregroundStyle(AppColor.textBase.opacity(0.6)) }
+        }
+        .frame(height: 58).padding(.horizontal, 22).background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(isFocused ? AppColor.textBase.opacity(0.5) : AppColor.spbSky_3, lineWidth: 1.1))
+    }
+    private var prompt: Text { Text("Введите пароль").font(Typography.Font.semibold(16)).foregroundStyle(AppColor.textBase.opacity(0.5)) }
+}
