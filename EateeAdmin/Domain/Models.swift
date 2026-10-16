@@ -1,5 +1,95 @@
 import Foundation
 
+// MARK: - Admin inbox
+
+/// Сообщение, которое доставляется пользователям через выбранные каналы связи.
+/// Поля намеренно повторяют snake_case-контракт API, чтобы не привязывать UI к
+/// конкретному способу доставки и не создавать промежуточные DTO.
+struct InboxMessage: Codable, Identifiable, Hashable {
+    let id: String
+    let category: InboxMessageCategory
+    let title: String
+    let body: String
+    let image_url: URL?
+    let action_url: String?
+    let published_at: Date
+    let expires_at: Date?
+    let min_app_version: String?
+    let send_push: Bool
+    let send_email: Bool
+    let created_at: Date
+    let delivered_at: Date?
+
+    var deliveryChannels: [InboxDeliveryChannel] {
+        InboxDeliveryChannel.allCases.filter { $0.isEnabled(for: self) }
+    }
+
+    func status(now: Date = .now) -> InboxMessageStatus {
+        if let expires_at, expires_at <= now { return .expired }
+        if published_at > now { return .scheduled }
+        if delivered_at != nil { return .delivered }
+        return .published
+    }
+}
+
+struct InboxPage: Codable {
+    let items: [InboxMessage]
+    let page: Int
+    let size: Int
+    let total: Int
+}
+
+enum InboxMessageCategory: String, Codable, CaseIterable, Identifiable {
+    case news, promo
+    var id: String { rawValue }
+    var title: String { self == .news ? "Новость" : "Промо" }
+}
+
+/// UI оперирует каналами доставки как коллекцией; при добавлении нового канала
+/// его можно включить здесь, не меняя представления списка и формы.
+enum InboxDeliveryChannel: CaseIterable, Identifiable {
+    case push
+    case email
+
+    var id: String { key }
+    var key: String { self == .push ? "push" : "email" }
+    var title: String { self == .push ? "Push-уведомления" : "Почта" }
+
+    func isEnabled(for message: InboxMessage) -> Bool {
+        switch self {
+        case .push: message.send_push
+        case .email: message.send_email
+        }
+    }
+}
+
+enum InboxMessageStatus: String {
+    case expired, scheduled, delivered, published
+
+    var title: String {
+        switch self {
+        case .expired: "Истекло"
+        case .scheduled: "Запланировано"
+        case .delivered: "Рассылка ушла"
+        case .published: "Опубликовано"
+        }
+    }
+}
+
+struct CreateInboxMessageCommand: Encodable {
+    let category: InboxMessageCategory
+    let title: String
+    let body: String
+    let image_url: String?
+    let action_url: String?
+    let published_at: Date?
+    let expires_at: Date?
+    let min_app_version: String?
+    let send_push: Bool
+    let send_email: Bool
+    let recipient_user_ids: [String]
+}
+
 // Эти DTO повторяют контракт основного eatee-frontend и могут декодироваться API без UI-адаптеров.
 struct FileURLResponse: Codable, Hashable { let url: String?; let resolution: String? }
 

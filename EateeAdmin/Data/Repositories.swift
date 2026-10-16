@@ -31,6 +31,9 @@ struct HTTPAuthenticationService: AuthenticationService {
     private func send(path: String, body: [String: String]) async throws -> AuthenticationResponse { var request = URLRequest(url: baseURL.appending(path: path)); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(body); let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }; if http.statusCode == 401 { throw AdminAuthenticationError.unauthorized }; guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.invalidResponse }; do { return try JSONDecoder().decode(AuthenticationResponse.self, from: data) } catch { throw AdminAuthenticationError.invalidResponse } }
 }
 protocol AgentsRepository: AnyObject {
+    func inbox(page: Int, size: Int) async throws -> InboxPage
+    func createInboxMessage(_ command: CreateInboxMessageCommand) async throws -> InboxMessage
+    func deleteInboxMessage(id: String) async throws
     func dishes(for agent: AgentKind, status: ReviewStatus) async -> [AgentDish]
     func dishes(for agent: AgentKind, status: ReviewStatus, page: Int, limit: Int) async throws -> Page<AgentDish>
     func allDishes(page: Int, limit: Int, query: String, category: DishCategoryFilter?) async throws -> Page<Dish>
@@ -97,6 +100,18 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
     private let baseURL = AdminAPIConfiguration.baseURL
     private let tokens: AdminTokenStore
     init(tokens: AdminTokenStore) { self.tokens = tokens }
+    func inbox(page: Int, size: Int) async throws -> InboxPage {
+        try await decode("api/admin/inbox", query: ["page": "\(page)", "size": "\(min(max(size, 1), 100))"])
+    }
+    func createInboxMessage(_ command: CreateInboxMessageCommand) async throws -> InboxMessage {
+        let message: InboxMessage = try await sendJSON("api/admin/inbox", method: "POST", body: command)
+        dataVersion += 1
+        return message
+    }
+    func deleteInboxMessage(id: String) async throws {
+        _ = try await request("api/admin/inbox/\(id)", method: "DELETE")
+        dataVersion += 1
+    }
     func dishes(for agent: AgentKind, status: ReviewStatus) async -> [AgentDish] { (try? await queue(agent: agent, status: status, page: 0, limit: 10).items) ?? [] }
     func dishes(for agent: AgentKind, status: ReviewStatus, page: Int, limit: Int) async throws -> Page<AgentDish> { try await queue(agent: agent, status: status, page: page, limit: limit) }
     func reviewTotals(for agents: [AgentKind]) async -> [AgentKind: Int] {
@@ -352,11 +367,15 @@ struct HTTPAdminAuthenticationService: AuthenticationService {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = tokens.accessToken { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        request.httpBody = try JSONEncoder().encode(body)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        request.httpBody = try encoder.encode(body)
         let (data, response) = try await tokens.authorizedData(for: request)
         guard let http = response as? HTTPURLResponse else { throw AdminAuthenticationError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw AdminAuthenticationError.server(status: http.statusCode, message: String(data: data, encoding: .utf8) ?? "") }
-        return try JSONDecoder().decode(T.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(T.self, from: data)
     }
     private func updateDictionarySetting(id: Int?, internalName: String, title: String, value: JSONValue, isPublic: Bool) async throws {
         let body = DictionarySettingUpdateDTO(id: id, internalName: internalName, title: title, value: value, isPublic: isPublic, isDeleted: false)

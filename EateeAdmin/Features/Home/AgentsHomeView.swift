@@ -13,6 +13,7 @@ struct AgentsHomeView: View {
                 NavigationLink { DishListView() } label: { DishesHeroCard(publishedCount: repository.homePublishedDishesCount) }.buttonStyle(.plain)
                 NavigationLink { DictionariesView() } label: { DictionariesHeroCard() }.buttonStyle(.plain)
                 NavigationLink { UsersView() } label: { UsersHeroCard() }.buttonStyle(.plain)
+                NavigationLink { InboxView() } label: { InboxHeroCard() }.buttonStyle(.plain)
                 NavigationLink { AccessManagementView() } label: { AccessHeroCard() }.buttonStyle(.plain)
                 NavigationLink { AnalyticsDashboardView() } label: { AnalyticsHeroCard() }.buttonStyle(.plain)
                 NavigationLink { ApplicationSettingsView() } label: { SettingsHeroCard(settingsCount: repository.homeSettingsCount) }.buttonStyle(.plain)
@@ -23,6 +24,32 @@ struct AgentsHomeView: View {
         }
         .navigationDestination(for: AgentKind.self) { AgentListView(agent: $0) }
         .task { await repository.refreshHomeSummary() }
+    }
+}
+
+private struct InboxHeroCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("РАССЫЛКИ").font(Typography.Font.bold(11)).tracking(1.3).foregroundStyle(Color(hex: "#6A5C97"))
+                    Text("Сообщения\nпользователям").font(Typography.Font.semibold(26)).foregroundStyle(EAColor.ink)
+                }
+                Spacer()
+                ZStack {
+                    Circle().fill(Color(hex: "#E5DCF9")).frame(width: 104, height: 104)
+                    Image(systemName: "paperplane.fill").font(.system(size: 42, weight: .medium)).foregroundStyle(Color(hex: "#6A5C97"))
+                }
+            }
+            HStack {
+                ZStack {
+                    Circle().fill(EAColor.ink).frame(width: 56, height: 56)
+                    Image(systemName: "arrow.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                }
+                Spacer()
+                Label("Каналы доставки", systemImage: "point.3.connected.trianglepath.dotted").font(Typography.Font.semibold(13)).foregroundStyle(Color(hex: "#6258A5")).padding(.horizontal, 13).padding(.vertical, 10).background(Color(hex: "#E5DCF9")).clipShape(Capsule())
+            }.padding(.top, 22)
+        }.padding(22).background(.white).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous)).shadow(color: .black.opacity(0.10), radius: 22, y: 8)
     }
 }
 
